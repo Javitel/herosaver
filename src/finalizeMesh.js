@@ -1,117 +1,276 @@
-import { Matrix4, Vector3, Vector4 } from "three";
+function init() {
+    (function(){
 
-var finalizeMesh = function() {};
+    RK.STLExporter = function () {};
 
-finalizeMesh.prototype = {
+    RK.STLExporter.prototype = {
 
-    constructor: finalizeMesh,
+        constructor: THREE.STLExporter,
 
-    parse: function (mesh) {
+        parse: ( function () {
 
-        if (!mesh.isMesh) {
-            console.warn('Mesh type unsupported', mesh);
-            return;
-        }
+            var vector = new THREE.Vector3();
+            var normalMatrixWorld = new THREE.Matrix3();
 
-        var vertex = new Vector3();
-        var i, l = [];
-        var nbVertex = 0;
-        var geometry = mesh.geometry;
-
-        var mrot = new Matrix4().makeRotationX(90 * Math.PI / 180);
-
-        var msca = new Matrix4().makeScale(10, 10, 10);
-        if (geometry.isBufferGeometry) {
-            var newGeometry = geometry.clone(geometry);
-            var vertices = geometry.getAttribute('position');
-
-            // vertices
-            if (vertices !== undefined) {
-                for (i = 0, l = vertices.count; i < l; i++ , nbVertex++) {
-                    vertex.x = vertices.getX(i);
-                    vertex.y = vertices.getY(i);
-                    vertex.z = vertices.getZ(i);
-
-                    if (geometry.skinIndexNames == undefined
-                      || geometry.skinIndexNames == 0) {
-                        vertex.applyMatrix4(mesh.matrixWorld).applyMatrix4(mrot).applyMatrix4(msca);
-                        newGeometry.attributes.position.setXYZ(i, vertex.x, vertex.y, vertex.z);
-                    } else {
-                        var finalVector = new Vector4();
-                        if (geometry.morphTargetInfluences !== undefined) {
-
-                            var morphVector = new Vector4(vertex.x, vertex.y, vertex.z);
-                            var tempMorph = new Vector4();
-
-                            for (var mt = 0; mt < geometry.morphAttributes.position.length; mt++) {
-                                if (geometry.morphTargetInfluences[mt] == 0) continue;
-                                if (geometry.morphTargetDictionary.hide == mt) continue;
-
-                                var morph = new Vector4(
-                                    geometry.morphAttributes.position[mt].getX(i),
-                                    geometry.morphAttributes.position[mt].getY(i),
-                                    geometry.morphAttributes.position[mt].getZ(i));
-
-                                tempMorph.addScaledVector(morph.sub(morphVector), geometry.morphTargetInfluences[mt]);
-                            }
-                            morphVector.add(tempMorph);
-                        }
-
-                        for (var si = 0; si < geometry.skinIndexNames.length; si++) {
-
-                            var skinIndices = geometry.getAttribute([geometry.skinIndexNames[si]])
-                            var weights = geometry.getAttribute([geometry.skinWeightNames[si]])
-
-                            var skinIndex = [];
-                            skinIndex[0] = skinIndices.getX(i);
-                            skinIndex[1] = skinIndices.getY(i);
-                            skinIndex[2] = skinIndices.getZ(i);
-                            skinIndex[3] = skinIndices.getW(i);
-
-                            var skinWeight = [];
-                            skinWeight[0] = weights.getX(i);
-                            skinWeight[1] = weights.getY(i);
-                            skinWeight[2] = weights.getZ(i);
-                            skinWeight[3] = weights.getW(i);
-
-                            var inverses = [];
-                            inverses[0] = mesh.skeleton.boneInverses[skinIndex[0]];
-                            inverses[1] = mesh.skeleton.boneInverses[skinIndex[1]];
-                            inverses[2] = mesh.skeleton.boneInverses[skinIndex[2]];
-                            inverses[3] = mesh.skeleton.boneInverses[skinIndex[3]];
-
-                            var skinMatrices = [];
-                            skinMatrices[0] = mesh.skeleton.bones[skinIndex[0]].matrixWorld;
-                            skinMatrices[1] = mesh.skeleton.bones[skinIndex[1]].matrixWorld;
-                            skinMatrices[2] = mesh.skeleton.bones[skinIndex[2]].matrixWorld;
-                            skinMatrices[3] = mesh.skeleton.bones[skinIndex[3]].matrixWorld;
-
-                            for (var k = 0; k < 4; k++) {
-                                if (geometry.morphTargetInfluences !== undefined) {
-                                    var tempVector = new Vector4(morphVector.x, morphVector.y, morphVector.z);
-                                } else {
-                                    var tempVector = new Vector4(vertex.x, vertex.y, vertex.z);
+            return function ( scenes ) {
+                console.log(scenes);
+                var output = '';
+                output += 'solid exported\n';
+                for(var scene_nr in scenes) {
+                    scenes[scene_nr].traverse( function ( object ) {
+                        if(object instanceof RK.Mesh){		    
+                            // if object is hidden - exit
+                            if(object.visible == false) return; 
+                            var geometry = object.geometry;
+                            var matrixWorld = object.matrixWorld;
+                            var skeleton = object.skeleton;
+                            var mesh = object;
+			    console.log('Found Mesh' + mesh.name);
+		            if(typeof onlyExportThisMesh !== 'undefined' && mesh.name != onlyExportThisMesh) {
+				    console.log('Looking for :' + onlyExportThisMesh + ' therefore ignoring ' + mesh.name);
+				    return;
+			    }
+			    console.log('exporting: ' + mesh.name);
+                            if(geometry instanceof RK.BufferGeometry){
+                                var oldgeometry = geometry.clone();
+                                geometry = new RK.Geometry().fromBufferGeometry(geometry);
+                                var skinIndex = oldgeometry.getAttribute('skinIndex0');
+                                var skinWeight = oldgeometry.getAttribute('skinWeight0');
+                                var morphTarget = oldgeometry.getAttribute('morphTarget0');
+                                var mtcount = 0;
+                                while(typeof morphTarget !== 'undefined') {
+                                    mtcount++;
+                                    morphTarget = oldgeometry.getAttribute('morphTarget' + mtcount);
                                 }
+                                if(typeof skinIndex !== 'undefined') {
+                                    geometry.skinIndices = [];
+                                    geometry.skinWeights = [];
+                                    geometry.morphTargets = [];
+                                    for(var j = 0; j < mtcount; j++) {
+                                        geometry.morphTargets[j] = {};
+                                        geometry.morphTargets[j].vertices = [];
+                                    }
+                                    for(var i = 0; i < geometry.vertices.length; i++) {
+                                        geometry.skinIndices.push((new THREE.Vector4 ()).fromBufferAttribute(skinIndex,i));
+                                        geometry.skinWeights.push((new THREE.Vector4 ()).fromBufferAttribute(skinWeight,i));
+                                        for(var j = 0; j < mtcount; j++) {
+                                            geometry.morphTargets[j].vertices.push((new THREE.Vector3 ()).fromBufferAttribute(oldgeometry.getAttribute('morphTarget' + j)));
+                                        }
+                                    }
+                                }
+                            }
 
-                                tempVector.multiplyScalar(skinWeight[k]);
-                                //the inverse takes the vector into local bone space
-                                //which is then transformed to the appropriate world space
-                                tempVector.applyMatrix4(inverses[k])
-                                    .applyMatrix4(skinMatrices[k])
-                                    .applyMatrix4(mrot).applyMatrix4(msca);
-                                finalVector.add(tempVector);
+                            if ( geometry instanceof RK.Geometry) {
+
+                                var vertices = geometry.vertices;
+                                var faces = geometry.faces;
+                                normalMatrixWorld.getNormalMatrix( matrixWorld );
+
+                                if(typeof faces != 'undefined'){
+                                    for ( var i = 0, l = faces.length; i < l; i ++ ) {
+                                        var face = faces[ i ];
+
+                                        vector.copy( face.normal ).applyMatrix3( normalMatrixWorld ).normalize();
+
+                                        output += '\tfacet normal ' + vector.x + ' ' + vector.y + ' ' + vector.z + '\n';
+                                        output += '\t\touter loop\n';
+
+                                        var indices = [ face.a, face.b, face.c ];
+
+                                        for ( var j = 0; j < 3; j ++ ) {
+                                            var vertexIndex = indices[ j ];
+                                            if (typeof geometry.skinIndices !== 'undefined' && geometry.skinIndices.length == 0) {
+                                                vector.copy( vertices[ vertexIndex ] ).applyMatrix4( matrixWorld );
+                                                output += '\t\t\tvertex ' + vector.x + ' ' + vector.y + ' ' + vector.z + '\n';
+                                            } else {
+                                                vector.copy( vertices[ vertexIndex ] ); //.applyMatrix4( matrixWorld );
+
+                                                // see https://github.com/mrdoob/three.js/issues/3187
+                                                var boneIndices = [
+                                                    geometry.skinIndices[vertexIndex].x,
+                                                    geometry.skinIndices[vertexIndex].y,
+                                                    geometry.skinIndices[vertexIndex].z,
+                                                    geometry.skinIndices[vertexIndex].w
+                                                ];
+
+                                                var weights = [
+                                                    geometry.skinWeights[vertexIndex].x,
+                                                    geometry.skinWeights[vertexIndex].y,
+                                                    geometry.skinWeights[vertexIndex].z,
+                                                    geometry.skinWeights[vertexIndex].w
+                                                ];
+
+                                                var inverses = [
+                                                    skeleton.boneInverses[ boneIndices[0] ],
+                                                    skeleton.boneInverses[ boneIndices[1] ],
+                                                    skeleton.boneInverses[ boneIndices[2] ],
+                                                    skeleton.boneInverses[ boneIndices[3] ]
+                                                ];
+
+                                                var skinMatrices = [
+                                                    skeleton.bones[ boneIndices[0] ].matrixWorld,
+                                                    skeleton.bones[ boneIndices[1] ].matrixWorld,
+                                                    skeleton.bones[ boneIndices[2] ].matrixWorld,
+                                                    skeleton.bones[ boneIndices[3] ].matrixWorld
+                                                ];
+
+                                                //this checks to see if the mesh has any morphTargets - jc
+                                                if (geometry.morphTargets !== 'undefined') {										
+                                                    var morphMatricesX = [];
+                                                    var morphMatricesY = [];
+                                                    var morphMatricesZ = [];
+                                                    var morphMatricesInfluence = [];
+
+                                                    for (var mt = 0; mt < geometry.morphTargets.length; mt++) {
+                                                        //collect the needed vertex info - jc
+                                                        morphMatricesX[mt] = geometry.morphTargets[mt].vertices[vertexIndex].x;
+                                                        morphMatricesY[mt] = geometry.morphTargets[mt].vertices[vertexIndex].y;
+                                                        morphMatricesZ[mt] = geometry.morphTargets[mt].vertices[vertexIndex].z;
+                                                        morphMatricesInfluence[mt] = mesh.morphTargetInfluences[mt];
+                                                    }
+                                                }
+
+                                                var finalVector = new THREE.Vector4();
+
+                                                if (mesh.geometry.morphTargets !== 'undefined') {
+
+                                                    var morphVector = new THREE.Vector4(vector.x, vector.y, vector.z);
+
+                                                    for (var mt = 0; mt < geometry.morphTargets.length; mt++) {
+                                                        //not pretty, but it gets the job done - jc
+                                                        morphVector.lerp(new THREE.Vector4(morphMatricesX[mt], morphMatricesY[mt], morphMatricesZ[mt], 1), morphMatricesInfluence[mt]);
+                                                    }
+
+                                                }
+
+                                                for (var k = 0; k < 4; k++) {
+
+                                                    var tempVector = new THREE.Vector4(vector.x, vector.y, vector.z);
+                                                    tempVector.multiplyScalar(weights[k]);
+                                                    //the inverse takes the vector into local bone space
+                                                    tempVector.applyMatrix4(inverses[k])
+                                                    //which is then transformed to the appropriate world space
+                                                        .applyMatrix4(skinMatrices[k]);
+                                                    finalVector.add(tempVector);
+
+                                                }
+
+                                                output += '\t\t\tvertex ' + finalVector.x + ' ' + finalVector.y + ' ' + finalVector.z + '\n';
+                                            }
+                                        }
+                                        output += '\t\tendloop\n';
+                                        output += '\tendfacet\n';
+                                    }
+                                }
                             }
                         }
-                        newGeometry.attributes.position.setXYZ(i, finalVector.x, finalVector.y, finalVector.z);
-                    }
+                    } );
                 }
-            }
-        } else {
-            console.warn( 'Geometry type unsupported', geometry );
-        }
+                output += 'endsolid exported\n';
 
-        return newGeometry;
+                return output;
+            };
+        }() )
+    };
+
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports = RK.STLExporter
+    } 
+    else if ((typeof define !== "undefined" && define !== null) && (define.amd !== null)) {
+        define([], function() {
+            return saveAs;
+        });
     }
-};
 
-export { finalizeMesh };
+
+	var characterArea_hook = ".headerMenu-container";
+	var menu_style = { "margin-left": "20px", "width": "80px" };
+	
+    var character_area, stl_base, sjson, ljson, labeljson;
+    
+	stl_base = 			jQuery("<a class='jss7 jss9 jss10' />").css(menu_style).text("Export STL");
+	sjson = 			jQuery("<a class='jss7 jss9 jss10' />").css(menu_style).text("Export JSON");
+	ljson  = 			jQuery("<input/>").attr({"type": "file", "id": "ljson"}).css({"display":"none"}).text("Import (JSON)");
+	labeljson  = 		jQuery("<label class='jss7 jss9 jss10' />").attr({"for": "ljson"}).css(menu_style).text("Import (JSON)");
+	
+    character_area = 	jQuery(".headerMenu-container").first();
+    character_area.css({"display": "flex", "justify-content": "center", "align-content": "center"});
+    
+    character_area.append(stl_base);
+    character_area.append(sjson);
+    character_area.append(ljson);
+    character_area.append(labeljson);
+
+    stl_base.click(function(e) {
+        e.preventDefault(); 
+        var exporter = new RK.STLExporter();    
+        var stlString = exporter.parse([CK.character])
+        var name = get_name();
+        download(stlString, name + '.stl', 'application/sla');
+    });
+
+
+    sjson.click(function(e) {
+        e.preventDefault();
+        var char_json = JSON.stringify(CK.data);
+        var name = get_name();
+        download(char_json, name + ".json", "text/plain");
+    });
+
+    ljson.on('change', function(e) {
+        e.preventDefault();
+        var file = e.target.files[0];
+        var reader = new FileReader();
+        reader.onload = (function(theFile) {
+            return function(e) {
+                e.preventDefault();
+                CK.change(JSON.parse(e.target.result));
+            };
+        })(file);
+        reader.readAsText(file);
+    });
+})()};
+
+function inject_script(url, callback) {
+  var head = document.getElementsByTagName("head")[0];
+  var script = document.createElement("script");
+  script.src = url; 
+  script.onload = function(e) { 
+      callback() };
+  head.appendChild(script);
+}
+
+inject_script("//code.jquery.com/jquery-3.3.1.min.js", function () {
+    inject_script("//cdnjs.cloudflare.com/ajax/libs/three.js/100/three.js", function () { init() })
+});
+
+function get_name() {
+  var timestamp = new Date().getUTCMilliseconds();
+  var uqID = timestamp.toString(36);
+  var name = "Character " + uqID; 
+  try {
+    var getName = CK.character.data.meta.character_name
+    name = getName === "" ? name : getName;
+  } catch (e) {
+    if (e instanceof ReferenceError) {
+        console.log("Name of character data location has changed");
+        console.log(e);
+    } else {
+        console.log("Other Error");
+        console.log(e);
+    }
+  }
+  return name;
+}
+© 2020 GitHub, Inc.
+Terms
+Privacy
+Security
+Status
+Help
+Contact GitHub
+Pricing
+API
+Training
+Blog
+About
